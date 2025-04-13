@@ -1,0 +1,322 @@
+<!DOCTYPE html> 
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Expense Tracker</title>
+  <link rel="manifest" href="manifest.json" />
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    input, select, button { margin: 5px; }
+    ul { list-style: none; padding: 0; }
+    li { margin: 5px 0; }
+    .expense-item { display: flex; justify-content: space-between; align-items: center; }
+    .expense-item span { margin-right: 10px; }
+    .highlight { background-color: #fff3cd; padding: 5px 10px; border-radius: 5px; }
+  </style>
+</head>
+<body>
+  <h2>Expense Tracker</h2>
+  <div>
+    <input id="amount" type="number" placeholder="Amount" />
+    <input id="remark" type="text" placeholder="Remark" />
+    <select id="category">
+      <option>Home Utilities</option>
+      <option>Food & Drinks</option>
+      <option>Transportation</option>
+      <option>Health & Wellness</option>
+      <option>Clothing & Fashion</option>
+      <option>Entertainment</option>
+      <option>Miscellaneous</option>
+    </select>
+    <button onclick="addExpense()">Add</button>
+  </div>
+
+  <div>
+    <h3>Budget</h3>
+    <input id="budgetInput" type="number" placeholder="Set Budget" />
+    <button onclick="setBudget()">Set</button>
+    <p>Total Budget: ₦<span id="budget">0</span></p>
+    <p>Status: <span id="status">No Budget Set</span></p>
+  </div>
+
+  <div>
+    <h3>Filter by Category</h3>
+    <select id="filter" onchange="updateExpenseList()">
+      <option>All</option>
+      <option>Home Utilities</option>
+      <option>Food & Drinks</option>
+      <option>Transportation</option>
+      <option>Health & Wellness</option>
+      <option>Clothing & Fashion</option>
+      <option>Entertainment</option>
+      <option>Miscellaneous</option>
+    </select>
+  </div>
+
+  <h3>Expenses (₦<span id="total">0</span>)</h3>
+  <ul id="expenseList"></ul>
+
+  <h3>Monthly Summaries</h3>
+  <ul id="monthlySummaries"></ul>
+
+  <h3>Recently Deleted</h3>
+  <ul id="recentlyDeleted"></ul>
+  <button onclick="undoLastDelete()">Undo Last</button>
+  <button onclick="clearDeleted()">Clear All</button>
+
+  <canvas id="expenseChart" width="400" height="200"></canvas>
+
+  <button onclick="downloadCSV()">Export as CSV</button>
+
+  <script>
+    let expenses = JSON.parse(localStorage.getItem("expenses")) || [];
+    let deletedExpenses = JSON.parse(localStorage.getItem("deletedExpenses")) || [];
+    let totalBudget = parseFloat(localStorage.getItem("budget")) || 0;
+
+    const categories = ["Home Utilities", "Food & Drinks", "Transportation", "Health & Wellness", "Clothing & Fashion", "Entertainment", "Miscellaneous"];
+
+    const amountInput = document.getElementById("amount");
+    const remarkInput = document.getElementById("remark");
+    const categorySelect = document.getElementById("category");
+    const expenseList = document.getElementById("expenseList");
+    const totalDisplay = document.getElementById("total");
+    const budgetDisplay = document.getElementById("budget");
+    const budgetInput = document.getElementById("budgetInput");
+    const statusDisplay = document.getElementById("status");
+    const filterSelect = document.getElementById("filter");
+    const recentlyDeletedList = document.getElementById("recentlyDeleted");
+    const monthlySummariesList = document.getElementById("monthlySummaries");
+
+    let chart = new Chart(document.getElementById("expenseChart"), {
+      type: 'bar',
+      data: {
+        labels: categories,
+        datasets: [{
+          label: 'Expenses by Category',
+          data: new Array(7).fill(0),
+          backgroundColor: 'rgba(54, 162, 235, 0.2)',
+          borderColor: 'rgba(54, 162, 235, 1)',
+          borderWidth: 1
+        }]
+      }
+    });
+
+    function saveAll() {
+      localStorage.setItem("expenses", JSON.stringify(expenses));
+      localStorage.setItem("deletedExpenses", JSON.stringify(deletedExpenses));
+      localStorage.setItem("budget", totalBudget);
+    }
+
+    function setBudget() {
+      const value = parseFloat(budgetInput.value);
+      if (!isNaN(value)) {
+        totalBudget = value;
+        budgetDisplay.textContent = value.toFixed(2);
+        updateStatus();
+        updateExpenseList();
+        saveAll();
+      }
+    }
+
+    function updateChart() {
+      const data = new Array(7).fill(0);
+      expenses.forEach(e => {
+        let i = categories.indexOf(e.category);
+        if (i >= 0) data[i] += e.amount;
+      });
+      chart.data.datasets[0].data = data;
+      chart.update();
+    }
+
+    function updateStatus() {
+      const total = expenses.reduce((sum, e) => sum + e.amount, 0);
+  if (totalBudget === 0) {
+    statusDisplay.textContent = "No Budget Set";
+    statusDisplay.style.color = ""; // Reset color
+  } else if (total > totalBudget) {
+    statusDisplay.textContent = "Over Budget";
+    statusDisplay.style.color = "red"; // Set color to red for "Over Budget"
+  } else {
+    statusDisplay.textContent = "Within Budget";
+    statusDisplay.style.color = ""; // Reset color to default
+  }
+}
+
+    function updateExpenseList() {
+      expenseList.innerHTML = "";
+      let total = 0;
+      const filter = filterSelect.value;
+      expenses.forEach(e => {
+        if (filter === "All" || e.category === filter) {
+          total += e.amount;
+          const li = document.createElement("li");
+          li.className = "expense-item";
+          
+          const amountExceeds = totalBudget && (e.amount > totalBudget);
+          const highlightClass = amountExceeds ? 'highlight' : '';
+
+          li.innerHTML = `<span class="${highlightClass}">${e.category}: ₦${e.amount.toFixed(2)} - ${e.remark}</span>
+            <button onclick="editExpense(${e.id})">Edit</button>
+            <button onclick="deleteExpense(${e.id})">Delete</button>`;
+          expenseList.appendChild(li);
+        }
+      });
+      totalDisplay.textContent = total.toFixed(2);
+      updateStatus();
+      updateChart();
+      updateMonthlySummaries();
+    }
+
+    function addExpense() {
+      const amount = parseFloat(amountInput.value);
+      const remark = remarkInput.value;
+      const category = categorySelect.value;
+      if (isNaN(amount)) return alert("Enter a valid amount");
+
+      const newExpense = { id: Date.now(), amount, remark, category, date: new Date().toISOString() };
+      expenses.push(newExpense);
+      saveAll();
+      updateExpenseList();
+      amountInput.value = "";
+      remarkInput.value = "";
+    }
+
+    function editExpense(id) {
+      const expense = expenses.find(e => e.id === id);
+      if (expense) {
+        amountInput.value = expense.amount;
+        remarkInput.value = expense.remark;
+        categorySelect.value = expense.category;
+        deleteExpense(id);
+      }
+    }
+
+    function deleteExpense(id) {
+      const index = expenses.findIndex(e => e.id === id);
+      if (index !== -1) {
+        deletedExpenses.push(expenses[index]);
+        expenses.splice(index, 1);
+        saveAll();
+        updateExpenseList();
+        updateDeletedList();
+      }
+    }
+
+    function updateDeletedList() {
+      recentlyDeletedList.innerHTML = "";
+      deletedExpenses.forEach(e => {
+        const li = document.createElement("li");
+        li.innerHTML = `<span>${e.category}: ₦${e.amount.toFixed(2)} - ${e.remark}</span>
+          <button onclick="restoreDeleted(${e.id})">Restore</button>`;
+        recentlyDeletedList.appendChild(li);
+      });
+    }
+
+    function restoreDeleted(id) {
+      const index = deletedExpenses.findIndex(e => e.id === id);
+      if (index !== -1) {
+        expenses.push(deletedExpenses[index]);
+        deletedExpenses.splice(index, 1);
+        saveAll();
+        updateExpenseList();
+        updateDeletedList();
+      }
+    }
+
+    function undoLastDelete() {
+      if (deletedExpenses.length > 0) {
+        const last = deletedExpenses.pop();
+        expenses.push(last);
+        saveAll();
+        updateExpenseList();
+        updateDeletedList();
+      }
+    }
+
+    function clearDeleted() {
+      deletedExpenses = [];
+      saveAll();
+      updateDeletedList();
+    }
+
+    function updateMonthlySummaries() {
+      monthlySummariesList.innerHTML = "";
+      const monthlyTotals = {};
+
+      expenses.forEach(e => {
+        const month = new Date(e.date).toLocaleString('default', { month: 'long', year: 'numeric' });
+        if (!monthlyTotals[month]) monthlyTotals[month] = 0;
+        monthlyTotals[month] += e.amount;
+      });
+
+      for (const [month, total] of Object.entries(monthlyTotals)) {
+        const li = document.createElement("li");
+        li.textContent = `${month}: ₦${total.toFixed(2)}`;
+        monthlySummariesList.appendChild(li);
+      }
+    }
+
+    function downloadCSV() {
+      let csv = "Amount,Remark,Category,Date\n";
+      expenses.forEach(e => {
+        const date = new Date(e.id).toLocaleDateString();
+        csv += `${e.amount},"${e.remark}",${e.category},${date}\n`;
+      });
+
+      const blob = new Blob([csv], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "expenses.csv";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    updateExpenseList();
+    updateDeletedList();
+    budgetDisplay.textContent = totalBudget.toFixed(2);
+  </script>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/service-worker.js')
+        .then(reg => console.log('✅ Service Worker registered:', reg.scope))
+        .catch(err => console.log('❌ Service Worker registration failed:', err));
+    });
+  }
+</script>
+
+<script>
+  let deferredPrompt;
+  const installBtn = document.createElement('button');
+  installBtn.textContent = "Install App";
+  installBtn.style.margin = "10px";
+  document.body.prepend(installBtn);
+  installBtn.style.display = "none";
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    installBtn.style.display = "inline-block";
+
+    installBtn.addEventListener('click', () => {
+      installBtn.style.display = "none";
+      deferredPrompt.prompt();
+      deferredPrompt.userChoice.then((choiceResult) => {
+        if (choiceResult.outcome === 'accepted') {
+          console.log('User accepted the install prompt');
+        } else {
+          console.log('User dismissed the install prompt');
+        }
+        deferredPrompt = null;
+      });
+    });
+  });
+</script>
+
+</body>
+</html>
